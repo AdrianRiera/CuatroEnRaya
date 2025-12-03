@@ -125,6 +125,9 @@ El proyecto se encuentra desplegado en AWS y accesible aquí:
 
 👉 https://dole06ju1i10f.cloudfront.net/
 
+## CI/CD
+He usado Github Actions para automatizar la sincronización de archivos en el bucket S3 con la carpeta dist que crea al hacer npm run build y seguidamente fuerza la caché de Cloudfront para ver los cambios más recientes. El deploy.yml donde declaro estas acciones está en .github -> workflows -> deploy.yml.
+
 🕹️ Guía paso a paso (Connect 4)
 1. Iniciar sesión de juego
 El cliente establece la conexión WebSocket ($connect).
