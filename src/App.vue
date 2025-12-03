@@ -17,6 +17,20 @@ const playerMarker = ref(null);
 const currentGameId = ref(null);
 const gameIdInput = ref('');
 
+// Sistema de puntuación
+const score = ref({ RED: 0, YELLOW: 0, DRAW: 0 });
+
+// Indicador de última jugada
+const lastMove = ref(null);
+
+// Animación de victoria
+const winningPositions = ref(null);
+
+// Temporizador de turno (40 segundos)
+const turnTimeLeft = ref(40);
+const turnTimer = ref(null);
+const turnStartTime = ref(null);
+
 // Estado de votación
 const myVote = ref(null);
 const votingInProgress = ref(false);
@@ -71,14 +85,38 @@ const handleMessage = (event) => {
       playerMarker.value = data.youAre;
     }
     
+    // Actualizar puntuación
+    if (data.score) {
+      score.value = data.score;
+    }
+    
+    // Actualizar última jugada
+    lastMove.value = data.lastMove;
+    
+    // Actualizar posiciones ganadoras
+    if (data.winningPositions) {
+      winningPositions.value = data.winningPositions;
+    } else {
+      winningPositions.value = null;
+    }
+    
     isMyTurn.value = currentTurn.value === playerMarker.value;
+    
+    // Iniciar temporizador si es mi turno y el juego está activo
+    if (data.status === 'PLAYING' && data.turnStartTime) {
+      startTurnTimer(data.turnStartTime);
+    } else {
+      stopTurnTimer();
+    }
     
     if (data.status === 'VOTING') {
       votingInProgress.value = true;
       myVote.value = null;
       gameMessage.value = data.message || '¿Quién debe comenzar?';
+      stopTurnTimer();
     } else if (data.winner) {
       votingInProgress.value = false;
+      stopTurnTimer();
       if (data.winner === 'DRAW') {
         gameMessage.value = '¡Empate!';
       } else {
@@ -91,6 +129,7 @@ const handleMessage = (event) => {
        resetRematchState();
     } else if (data.status === 'WAITING') {
        votingInProgress.value = false;
+       stopTurnTimer();
        gameMessage.value = 'Esperando a otro jugador...';
     }
   } else if (data.type === 'voteRegistered') {
@@ -103,6 +142,7 @@ const handleMessage = (event) => {
   } else if (data.type === 'closeSession') {
     gameMessage.value = data.message;
     stopRematchCountdown();
+    stopTurnTimer();
     setTimeout(() => {
       if (socket.value) {
         socket.value.close();
@@ -112,6 +152,36 @@ const handleMessage = (event) => {
   } else if (data.type === 'error') {
     gameMessage.value = `Error: ${data.message || data.error}`;
   }
+};
+
+// LÓGICA DE TEMPORIZADOR DE TURNO
+
+const startTurnTimer = (serverStartTime) => {
+  stopTurnTimer();
+  turnStartTime.value = serverStartTime;
+  
+  const updateTimer = () => {
+    const now = Date.now() / 1000;
+    const elapsed = now - turnStartTime.value;
+    const remaining = Math.max(0, 40 - Math.floor(elapsed));
+    turnTimeLeft.value = remaining;
+    
+    if (remaining <= 0) {
+      stopTurnTimer();
+      // El servidor manejará el timeout
+    }
+  };
+  
+  updateTimer();
+  turnTimer.value = setInterval(updateTimer, 100);
+};
+
+const stopTurnTimer = () => {
+  if (turnTimer.value) {
+    clearInterval(turnTimer.value);
+    turnTimer.value = null;
+  }
+  turnTimeLeft.value = 40;
 };
 
 // LÓGICA DE REVANCHA
@@ -196,6 +266,9 @@ const joinGame = (gameId) => {
   board.value = Array(ROWS * COLS).fill(null);
   gameMessage.value = 'Uniéndose a la partida...';
   resetRematchState();
+  score.value = { RED: 0, YELLOW: 0, DRAW: 0 };
+  lastMove.value = null;
+  stopTurnTimer();
   
   sendAction('joinGame', { gameId: gameId });
 };
@@ -230,6 +303,7 @@ const copyGameId = () => {
 
 const leaveGame = () => {
   resetRematchState();
+  stopTurnTimer();
   
   if (currentGameId.value && socket.value && socket.value.readyState === WebSocket.OPEN) {
     sendAction('leaveGame', { gameId: currentGameId.value });
@@ -247,6 +321,8 @@ const leaveGame = () => {
   gameIdInput.value = '';
   votingInProgress.value = false;
   myVote.value = null;
+  score.value = { RED: 0, YELLOW: 0, DRAW: 0 };
+  lastMove.value = null;
 };
 
 // INICIALIZACIÓN
@@ -273,6 +349,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   resetRematchState();
+  stopTurnTimer();
   if (socket.value) {
     socket.value.close();
   }
@@ -317,6 +394,23 @@ onUnmounted(() => {
             📋
           </button>
         </div>
+        
+        <!-- Scoreboard -->
+        <div class="scoreboard">
+          <div class="score-item">
+            <div class="score-disc red"></div>
+            <span class="score-value">{{ score.RED }}</span>
+          </div>
+          <div class="score-item draw">
+            <span class="score-label">Empates</span>
+            <span class="score-value">{{ score.DRAW }}</span>
+          </div>
+          <div class="score-item">
+            <div class="score-disc yellow"></div>
+            <span class="score-value">{{ score.YELLOW }}</span>
+          </div>
+        </div>
+        
         <div class="player-info">
           <div class="player-marker">
             <span>Mi color:</span>
@@ -325,7 +419,22 @@ onUnmounted(() => {
               :style="{ backgroundColor: getMarkerColor(playerMarker) }"
             ></div>
           </div>
+          
+          <!-- Temporizador de turno -->
+          <div v-if="gameStatus === 'PLAYING'" class="turn-timer">
+            <div class="timer-bar-container">
+              <div 
+                class="timer-bar" 
+                :style="{ width: `${(turnTimeLeft / 40) * 100}%` }"
+                :class="{ 'timer-warning': turnTimeLeft <= 10 }"
+              ></div>
+            </div>
+            <span class="timer-text" :class="{ 'timer-warning-text': turnTimeLeft <= 10 }">
+              ⏱️ {{ turnTimeLeft }}s
+            </span>
+          </div>
         </div>
+        
         <p class="status">{{ gameMessage }}</p>
       </div>
       
@@ -385,7 +494,9 @@ onUnmounted(() => {
                 class="disc"
                 :class="{ 
                   'disc-red': boardGrid[row - 1][col - 1] === 'RED',
-                  'disc-yellow': boardGrid[row - 1][col - 1] === 'YELLOW'
+                  'disc-yellow': boardGrid[row - 1][col - 1] === 'YELLOW',
+                  'disc-last-move': lastMove === ((row - 1) * COLS + (col - 1)),
+                  'disc-winning': winningPositions && winningPositions.includes((row - 1) * COLS + (col - 1))
                 }"
               ></div>
             </div>
@@ -428,6 +539,7 @@ onUnmounted(() => {
   padding: 20px;
   min-height: 100vh;
   background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  overflow-y: auto;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -438,8 +550,8 @@ onUnmounted(() => {
 
 h1 {
   color: white;
-  margin-bottom: 30px;
-  font-size: clamp(2em, 5vw, 3.5em);
+  margin-bottom: 20px;
+  font-size: clamp(1.8em, 4vw, 2.5em);
   text-shadow: 3px 3px 6px rgba(0,0,0,0.4);
   text-align: center;
 }
@@ -622,10 +734,10 @@ button {
 /* GAME PANEL */
 .game-panel {
   background: white;
-  padding: 30px;
+  padding: 25px;
   border-radius: 20px;
   box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-  max-width: 900px;
+  max-width: 850px;
   width: 100%;
 }
 
@@ -636,7 +748,7 @@ button {
 }
 
 .game-info {
-  margin-bottom: 25px;
+  margin-bottom: 20px;
   text-align: center;
 }
 
@@ -644,17 +756,17 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 15px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
-  font-size: 1.1em;
+  font-size: 1em;
 }
 
 .game-id-display code {
   background: #f7fafc;
-  padding: 8px 15px;
+  padding: 6px 12px;
   border-radius: 8px;
   font-family: 'Courier New', monospace;
-  font-size: 0.95em;
+  font-size: 0.9em;
   margin: 0 8px;
 }
 
@@ -665,18 +777,96 @@ button {
   }
 }
 
-.player-info {
+/* SCOREBOARD */
+.scoreboard {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 25px;
   margin: 15px 0;
+  padding: 15px;
+  background: linear-gradient(135deg, #f7fafc 0%, #e2e8f0 100%);
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .scoreboard {
+    background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+  }
+}
+
+.score-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.3em;
+  font-weight: bold;
+  color: #2c5282;
+}
+
+@media (prefers-color-scheme: dark) {
+  .score-item {
+    color: #4a7bc8;
+  }
+}
+
+.score-item.draw {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.score-label {
+  font-size: 0.7em;
+  color: #718096;
+}
+
+@media (prefers-color-scheme: dark) {
+  .score-label {
+    color: #a0a0a0;
+  }
+}
+
+.score-value {
+  font-size: 1.4em;
+  color: #1a365d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .score-value {
+    color: #90cdf4;
+  }
+}
+
+.score-disc {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.2);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.score-disc.red {
+  background: radial-gradient(circle at 30% 30%, #fc8181, #e53e3e);
+}
+
+.score-disc.yellow {
+  background: radial-gradient(circle at 30% 30%, #faf089, #ecc94b);
+}
+
+.player-info {
+  margin: 12px 0;
 }
 
 .player-marker {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  font-size: 1.2em;
+  gap: 10px;
+  font-size: 1.1em;
   font-weight: bold;
   color: #333;
+  margin-bottom: 10px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -686,8 +876,8 @@ button {
 }
 
 .color-circle {
-  width: 40px;
-  height: 40px;
+  width: 35px;
+  height: 35px;
   border-radius: 50%;
   border: 3px solid #333;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
@@ -699,11 +889,68 @@ button {
   }
 }
 
+/* TEMPORIZADOR DE TURNO */
+.turn-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.timer-bar-container {
+  width: 200px;
+  height: 12px;
+  background: #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .timer-bar-container {
+    background: #2a2a2a;
+  }
+}
+
+.timer-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #48bb78 0%, #38a169 100%);
+  transition: width 0.1s linear;
+  border-radius: 10px;
+}
+
+.timer-bar.timer-warning {
+  background: linear-gradient(90deg, #fc8181 0%, #e53e3e 100%);
+  animation: pulse-timer 0.5s infinite;
+}
+
+@keyframes pulse-timer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.timer-text {
+  font-size: 1.1em;
+  font-weight: bold;
+  color: #38a169;
+}
+
+.timer-text.timer-warning-text {
+  color: #e53e3e;
+  animation: pulse-text 0.5s infinite;
+}
+
+@keyframes pulse-text {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
 .status {
   font-weight: bold;
-  font-size: 1.4em;
+  font-size: 1.2em;
   color: #2a5298;
-  margin: 15px 0;
+  margin: 12px 0;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -716,7 +963,7 @@ button {
 .board-wrapper {
   display: flex;
   justify-content: center;
-  margin: 25px 0;
+  margin: 20px 0;
 }
 
 .board {
@@ -724,7 +971,7 @@ button {
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
   background: #2c5282;
-  padding: 15px;
+  padding: 12px;
   border-radius: 15px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
 }
@@ -760,8 +1007,8 @@ button {
 }
 
 .cell {
-  width: clamp(50px, 8vw, 80px);
-  height: clamp(50px, 8vw, 80px);
+  width: clamp(45px, 7vw, 70px);
+  height: clamp(45px, 7vw, 70px);
   background: #1a365d;
   border-radius: 50%;
   display: flex;
@@ -793,6 +1040,43 @@ button {
 .disc-yellow {
   background: radial-gradient(circle at 30% 30%, #faf089, #ecc94b);
   animation: drop 0.5s ease-out;
+}
+
+/* INDICADOR DE ÚLTIMA JUGADA */
+.disc-last-move {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.8), 0 4px 12px rgba(0,0,0,0.3);
+  animation: pulse-last-move 1.5s infinite;
+}
+
+@keyframes pulse-last-move {
+  0%, 100% { 
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.8), 0 4px 12px rgba(0,0,0,0.3);
+  }
+  50% { 
+    box-shadow: 0 0 0 5px rgba(255, 255, 255, 1), 0 4px 16px rgba(0,0,0,0.4);
+  }
+}
+
+/* ANIMACIÓN DE VICTORIA */
+.disc-winning {
+  animation: celebrate 0.8s ease-in-out infinite;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 4px 12px rgba(0,0,0,0.3);
+  transform: scale(1.1);
+}
+
+@keyframes celebrate {
+  0%, 100% { 
+    transform: scale(1.1) rotate(0deg);
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 4px 12px rgba(0,0,0,0.3);
+  }
+  25% { 
+    transform: scale(1.15) rotate(-5deg);
+    box-shadow: 0 0 30px rgba(255, 215, 0, 1), 0 4px 16px rgba(0,0,0,0.4);
+  }
+  75% { 
+    transform: scale(1.15) rotate(5deg);
+    box-shadow: 0 0 30px rgba(255, 215, 0, 1), 0 4px 16px rgba(0,0,0,0.4);
+  }
 }
 
 @keyframes drop {
@@ -1013,16 +1297,26 @@ button {
   }
   
   .cell {
-    width: clamp(40px, 10vw, 60px);
-    height: clamp(40px, 10vw, 60px);
+    width: clamp(40px, 9vw, 55px);
+    height: clamp(40px, 9vw, 55px);
   }
   
   .game-lobby, .game-panel {
-    padding: 25px;
+    padding: 20px;
   }
   
   h1 {
-    font-size: 2em;
+    font-size: 1.8em;
+    margin-bottom: 15px;
+  }
+  
+  .scoreboard {
+    gap: 15px;
+    padding: 12px;
+  }
+  
+  .score-item {
+    font-size: 1.1em;
   }
 }
 
@@ -1039,6 +1333,15 @@ button {
   
   .column {
     gap: 3px;
+  }
+  
+  .scoreboard {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .timer-bar-container {
+    width: 150px;
   }
 }
 </style>
