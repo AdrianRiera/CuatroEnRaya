@@ -17,6 +17,10 @@ const playerMarker = ref(null);
 const currentGameId = ref(null);
 const gameIdInput = ref('');
 
+// Estado de votación
+const myVote = ref(null);
+const votingInProgress = ref(false);
+
 // Estado de revancha
 const rematchCountdown = ref(0);
 const rematchTimer = ref(null);
@@ -69,7 +73,12 @@ const handleMessage = (event) => {
     
     isMyTurn.value = currentTurn.value === playerMarker.value;
     
-    if (data.winner) {
+    if (data.status === 'VOTING') {
+      votingInProgress.value = true;
+      myVote.value = null;
+      gameMessage.value = data.message || '¿Quién debe comenzar?';
+    } else if (data.winner) {
+      votingInProgress.value = false;
       if (data.winner === 'DRAW') {
         gameMessage.value = '¡Empate!';
       } else {
@@ -77,11 +86,17 @@ const handleMessage = (event) => {
       }
       startRematchCountdown();
     } else if (data.status === 'PLAYING') {
-       gameMessage.value = isMyTurn.value ? '¡Es tu turno!' : `Turno de ${currentTurn.value}`;
+       votingInProgress.value = false;
+       gameMessage.value = data.message || (isMyTurn.value ? '¡Es tu turno!' : `Turno de ${currentTurn.value}`);
        resetRematchState();
     } else if (data.status === 'WAITING') {
+       votingInProgress.value = false;
        gameMessage.value = 'Esperando a otro jugador...';
     }
+  } else if (data.type === 'voteRegistered') {
+    gameMessage.value = data.message;
+  } else if (data.type === 'waitingVote') {
+    gameMessage.value = data.message;
   } else if (data.type === 'rematchWaiting') {
     waitingForOpponent.value = true;
     gameMessage.value = data.message;
@@ -141,6 +156,13 @@ const declineRematch = () => {
 };
 
 // LÓGICA DEL JUEGO
+
+const voteForTurn = (vote) => {
+  if (votingInProgress.value && !myVote.value) {
+    myVote.value = vote;
+    sendAction('voteTurn', { vote: vote, gameId: currentGameId.value });
+  }
+};
 
 const makeMove = (col) => {
   if (gameStatus.value === 'PLAYING' && isMyTurn.value) {
@@ -223,6 +245,8 @@ const leaveGame = () => {
   gameStatus.value = 'WAITING';
   gameMessage.value = 'Desconectado. Recarga la página para volver a jugar.';
   gameIdInput.value = '';
+  votingInProgress.value = false;
+  myVote.value = null;
 };
 
 // INICIALIZACIÓN
@@ -303,6 +327,35 @@ onUnmounted(() => {
           </div>
         </div>
         <p class="status">{{ gameMessage }}</p>
+      </div>
+      
+      <!-- Panel de votación -->
+      <div v-if="votingInProgress" class="voting-panel">
+        <h3>¿Quién debe comenzar?</h3>
+        <p class="voting-description">
+          Si ambos eligen el mismo, ese jugador comienza.<br>
+          Si no coinciden, se decidirá aleatoriamente.
+        </p>
+        <div class="vote-buttons">
+          <button 
+            @click="voteForTurn('RED')" 
+            class="btn-vote btn-vote-red"
+            :class="{ 'voted': myVote === 'RED' }"
+            :disabled="myVote !== null"
+          >
+            <div class="vote-disc red"></div>
+            ROJO comienza
+          </button>
+          <button 
+            @click="voteForTurn('YELLOW')" 
+            class="btn-vote btn-vote-yellow"
+            :class="{ 'voted': myVote === 'YELLOW' }"
+            :disabled="myVote !== null"
+          >
+            <div class="vote-disc yellow"></div>
+            AMARILLO comienza
+          </button>
+        </div>
       </div>
       
       <!-- Tablero de juego -->
@@ -766,6 +819,134 @@ button {
 @media (prefers-color-scheme: dark) {
   .rematch-panel {
     background: #2a2a2a;
+  }
+}
+
+/* VOTING PANEL */
+.voting-panel {
+  margin: 25px 0;
+  padding: 30px;
+  background: linear-gradient(135deg, #f7fafc 0%, #e2e8f0 100%);
+  border-radius: 15px;
+  text-align: center;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .voting-panel {
+    background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+  }
+}
+
+.voting-panel h3 {
+  color: #2c5282;
+  font-size: 1.8em;
+  margin-bottom: 15px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .voting-panel h3 {
+    color: #4a7bc8;
+  }
+}
+
+.voting-description {
+  color: #4a5568;
+  font-size: 1em;
+  margin-bottom: 25px;
+  line-height: 1.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  .voting-description {
+    color: #a0a0a0;
+  }
+}
+
+.vote-buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-vote {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 30px;
+  font-size: 1.2em;
+  font-weight: bold;
+  border: 3px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  flex: 1;
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.btn-vote:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.btn-vote-red {
+  background: linear-gradient(135deg, #fc8181 0%, #e53e3e 100%);
+  color: white;
+}
+
+.btn-vote-red:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(229, 62, 62, 0.4);
+  border-color: #c53030;
+}
+
+.btn-vote-red.voted {
+  border-color: #c53030;
+  box-shadow: 0 0 20px rgba(229, 62, 62, 0.6);
+  animation: pulse-vote 1.5s infinite;
+}
+
+.btn-vote-yellow {
+  background: linear-gradient(135deg, #faf089 0%, #ecc94b 100%);
+  color: #744210;
+}
+
+.btn-vote-yellow:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(236, 201, 75, 0.4);
+  border-color: #d69e2e;
+}
+
+.btn-vote-yellow.voted {
+  border-color: #d69e2e;
+  box-shadow: 0 0 20px rgba(236, 201, 75, 0.6);
+  animation: pulse-vote 1.5s infinite;
+}
+
+.vote-disc {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.2);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.vote-disc.red {
+  background: radial-gradient(circle at 30% 30%, #fc8181, #e53e3e);
+}
+
+.vote-disc.yellow {
+  background: radial-gradient(circle at 30% 30%, #faf089, #ecc94b);
+}
+
+@keyframes pulse-vote {
+  0%, 100% { 
+    transform: scale(1); 
+  }
+  50% { 
+    transform: scale(1.05); 
   }
 }
 
