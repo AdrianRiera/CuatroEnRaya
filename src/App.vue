@@ -416,6 +416,21 @@ onUnmounted(() => {
           </button>
         </div>
         
+        <!-- Scoreboard -->
+        <div class="scoreboard">
+          <div class="score-item">
+            <div class="score-disc red"></div>
+            <span class="score-value">{{ score.RED }}</span>
+          </div>
+          <div class="score-item draw">
+            <span class="score-label">Empates</span>
+            <span class="score-value">{{ score.DRAW }}</span>
+          </div>
+          <div class="score-item">
+            <div class="score-disc yellow"></div>
+            <span class="score-value">{{ score.YELLOW }}</span>
+          </div>
+        </div>
         
         <div class="player-info">
           <div class="player-marker">
@@ -426,7 +441,20 @@ onUnmounted(() => {
             ></div>
           </div>
           
-          
+          <!-- Temporizador de turno -->
+          <div v-if="gameStatus === 'PLAYING'" class="turn-timer">
+            <div class="timer-bar-container">
+              <div 
+                class="timer-bar" 
+                :style="{ width: `${(turnTimeLeft / 40) * 100}%` }"
+                :class="{ 'timer-warning': turnTimeLeft <= 10 }"
+              ></div>
+            </div>
+            <span class="timer-text" :class="{ 'timer-warning-text': turnTimeLeft <= 10 }">
+              ⏱️ {{ turnTimeLeft }}s
+            </span>
+          </div>
+        </div>
         
         <p class="status">{{ gameMessage }}</p>
       </div>
