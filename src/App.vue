@@ -42,7 +42,8 @@ const handleMessage = (event) => {
     currentTurn.value = data.turn;
     gameStatus.value = data.status;
 
-    if (data.youAre && !playerMarker.value) {
+    // SIEMPRE actualizar el marcador cuando llega del servidor
+    if (data.youAre) {
       playerMarker.value = data.youAre;
     }
     
@@ -178,11 +179,17 @@ const copyGameId = () => {
 const leaveGame = () => {
   resetRematchState();
   
+  // Enviar notificación al backend de que el jugador salió
+  if (currentGameId.value && socket.value && socket.value.readyState === WebSocket.OPEN) {
+    sendAction('leaveGame', { gameId: currentGameId.value });
+  }
+  
   // Cerrar WebSocket si está abierto
   if (socket.value && socket.value.readyState === WebSocket.OPEN) {
     socket.value.close();
   }
   
+  // Reset completo del estado
   currentGameId.value = null;
   playerMarker.value = null;
   board.value = Array(9).fill(null);
