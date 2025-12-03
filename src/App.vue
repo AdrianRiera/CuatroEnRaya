@@ -66,15 +66,20 @@ const sendAction = (action, payload = {}) => {
   if (socket.value && socket.value.readyState === WebSocket.OPEN) {
     const message = JSON.stringify({ action, ...payload });
     socket.value.send(message);
-    console.log(`Mensaje enviado: ${action}`, payload);
+    console.log(`📤 Mensaje enviado: ${action}`, payload);
   } else {
-    console.error('WebSocket no está conectado.');
+    console.error('❌ WebSocket no está conectado. Estado:', socket.value?.readyState);
   }
 };
 
 const handleMessage = (event) => {
   const data = JSON.parse(event.data);
-  console.log('Mensaje recibido:', data);
+  console.log('📨 Mensaje recibido:', data);
+  console.log('📊 Estado actual antes de procesar:', {
+    gameStatus: gameStatus.value,
+    playerMarker: playerMarker.value,
+    currentTurn: currentTurn.value
+  });
 
   if (data.type === 'gameUpdate') {
     board.value = data.board;
@@ -83,6 +88,7 @@ const handleMessage = (event) => {
 
     if (data.youAre) {
       playerMarker.value = data.youAre;
+      console.log('✅ Marcador asignado:', playerMarker.value);
     }
     
     // Actualizar puntuación
@@ -102,6 +108,13 @@ const handleMessage = (event) => {
     
     isMyTurn.value = currentTurn.value === playerMarker.value;
     
+    console.log('🎮 Estado después de gameUpdate:', {
+      status: data.status,
+      turn: data.turn,
+      isMyTurn: isMyTurn.value,
+      message: data.message
+    });
+    
     // Iniciar temporizador si es mi turno y el juego está activo
     if (data.status === 'PLAYING' && data.turnStartTime) {
       startTurnTimer(data.turnStartTime);
@@ -110,6 +123,7 @@ const handleMessage = (event) => {
     }
     
     if (data.status === 'VOTING') {
+      console.log('🗳️ Entrando en modo votación');
       votingInProgress.value = true;
       myVote.value = null;
       gameMessage.value = data.message || '¿Quién debe comenzar?';
@@ -124,17 +138,21 @@ const handleMessage = (event) => {
       }
       startRematchCountdown();
     } else if (data.status === 'PLAYING') {
+       console.log('▶️ Modo jugando activado');
        votingInProgress.value = false;
        gameMessage.value = data.message || (isMyTurn.value ? '¡Es tu turno!' : `Turno de ${currentTurn.value}`);
        resetRematchState();
     } else if (data.status === 'WAITING') {
+       console.log('⏳ Esperando oponente');
        votingInProgress.value = false;
        stopTurnTimer();
        gameMessage.value = 'Esperando a otro jugador...';
     }
   } else if (data.type === 'voteRegistered') {
+    console.log('✅ Voto registrado');
     gameMessage.value = data.message;
   } else if (data.type === 'waitingVote') {
+    console.log('⏳ Esperando voto del oponente');
     gameMessage.value = data.message;
   } else if (data.type === 'rematchWaiting') {
     waitingForOpponent.value = true;
@@ -150,6 +168,7 @@ const handleMessage = (event) => {
       leaveGame();
     }, 2000);
   } else if (data.type === 'error') {
+    console.error('❌ Error recibido:', data.message || data.error);
     gameMessage.value = `Error: ${data.message || data.error}`;
   }
 };
@@ -260,6 +279,8 @@ const joinGame = (gameId) => {
     gameMessage.value = 'Error: Ingresa un ID de partida';
     return;
   }
+  
+  console.log('🎮 Intentando unirse a partida:', gameId);
   
   currentGameId.value = gameId;
   playerMarker.value = null;
