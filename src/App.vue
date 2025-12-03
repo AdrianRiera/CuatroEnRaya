@@ -1,15 +1,17 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 
-// 1. **CONFIGURACIÓN DEL ENDPOINT**
+// CONFIGURACIÓN
 const WEBSOCKET_ENDPOINT = 'wss://eszrnakah2.execute-api.eu-south-2.amazonaws.com/production';
+const ROWS = 6;
+const COLS = 7;
 
-// --- ESTADO REACTIVO DEL JUEGO ---
+// ESTADO REACTIVO
 const socket = ref(null);
-const board = ref(Array(9).fill(null));
+const board = ref(Array(ROWS * COLS).fill(null));
 const currentTurn = ref('');
-const gameStatus = ref('WAITING'); // Estado real: WAITING, PLAYING, FINISHED
-const gameMessage = ref('Esperando conexión...'); // Mensaje para mostrar al usuario
+const gameStatus = ref('WAITING');
+const gameMessage = ref('Esperando conexión...');
 const isMyTurn = ref(false);
 const playerMarker = ref(null);
 const currentGameId = ref(null);
@@ -21,7 +23,26 @@ const rematchTimer = ref(null);
 const waitingForOpponent = ref(false);
 const iRequestedRematch = ref(false);
 
-// --- FUNCIONES DE COMUNICACIÓN ---
+// Hover state para columnas
+const hoveredColumn = ref(null);
+
+// Computed: Convertir board plano a matriz 2D
+const boardGrid = computed(() => {
+  const grid = [];
+  for (let row = 0; row < ROWS; row++) {
+    grid.push(board.value.slice(row * COLS, (row + 1) * COLS));
+  }
+  return grid;
+});
+
+// Computed: Obtener color CSS según marcador
+const getMarkerColor = (marker) => {
+  if (marker === 'RED') return '#e53e3e';
+  if (marker === 'YELLOW') return '#ecc94b';
+  return 'transparent';
+};
+
+// COMUNICACIÓN
 
 const sendAction = (action, payload = {}) => {
   if (socket.value && socket.value.readyState === WebSocket.OPEN) {
@@ -42,25 +63,21 @@ const handleMessage = (event) => {
     currentTurn.value = data.turn;
     gameStatus.value = data.status;
 
-    // SIEMPRE actualizar el marcador cuando llega del servidor
     if (data.youAre) {
       playerMarker.value = data.youAre;
     }
     
     isMyTurn.value = currentTurn.value === playerMarker.value;
     
-    // Actualizar el MENSAJE basado en el estado
     if (data.winner) {
       if (data.winner === 'DRAW') {
         gameMessage.value = '¡Empate!';
       } else {
         gameMessage.value = `¡${data.winner} ha ganado!`;
       }
-      // Iniciar contador de revancha
       startRematchCountdown();
     } else if (data.status === 'PLAYING') {
        gameMessage.value = isMyTurn.value ? '¡Es tu turno!' : `Turno de ${currentTurn.value}`;
-       // Si estaba en revancha y ahora está jugando, limpiar estado
        resetRematchState();
     } else if (data.status === 'WAITING') {
        gameMessage.value = 'Esperando a otro jugador...';
@@ -71,7 +88,6 @@ const handleMessage = (event) => {
   } else if (data.type === 'closeSession') {
     gameMessage.value = data.message;
     stopRematchCountdown();
-    // Cerrar el WebSocket después de un breve delay
     setTimeout(() => {
       if (socket.value) {
         socket.value.close();
@@ -83,7 +99,7 @@ const handleMessage = (event) => {
   }
 };
 
-// --- LÓGICA DE REVANCHA ---
+// LÓGICA DE REVANCHA
 
 const startRematchCountdown = () => {
   rematchCountdown.value = 10;
@@ -95,7 +111,6 @@ const startRematchCountdown = () => {
     
     if (rematchCountdown.value <= 0) {
       stopRematchCountdown();
-      // Tiempo agotado, enviar rechazo
       sendAction('declineRematch', { gameId: currentGameId.value });
     }
   }, 1000);
@@ -125,12 +140,27 @@ const declineRematch = () => {
   sendAction('declineRematch', { gameId: currentGameId.value });
 };
 
-// --- LÓGICA DEL JUEGO EN EL FRONTEND ---
+// LÓGICA DEL JUEGO
 
-const makeMove = (index) => {
-  if (gameStatus.value === 'PLAYING' && isMyTurn.value && board.value[index] === null) {
-    sendAction('makeMove', { position: index, gameId: currentGameId.value });
+const makeMove = (col) => {
+  if (gameStatus.value === 'PLAYING' && isMyTurn.value) {
+    sendAction('makeMove', { column: col, gameId: currentGameId.value });
   }
+};
+
+const handleColumnHover = (col) => {
+  if (gameStatus.value === 'PLAYING' && isMyTurn.value) {
+    hoveredColumn.value = col;
+  }
+};
+
+const handleColumnLeave = () => {
+  hoveredColumn.value = null;
+};
+
+const isColumnFull = (col) => {
+  // Verificar si la fila superior de esta columna está ocupada
+  return board.value[col] !== null;
 };
 
 const joinGame = (gameId) => {
@@ -141,7 +171,7 @@ const joinGame = (gameId) => {
   
   currentGameId.value = gameId;
   playerMarker.value = null;
-  board.value = Array(9).fill(null);
+  board.value = Array(ROWS * COLS).fill(null);
   gameMessage.value = 'Uniéndose a la partida...';
   resetRematchState();
   
@@ -179,26 +209,23 @@ const copyGameId = () => {
 const leaveGame = () => {
   resetRematchState();
   
-  // Enviar notificación al backend de que el jugador salió
   if (currentGameId.value && socket.value && socket.value.readyState === WebSocket.OPEN) {
     sendAction('leaveGame', { gameId: currentGameId.value });
   }
   
-  // Cerrar WebSocket si está abierto
   if (socket.value && socket.value.readyState === WebSocket.OPEN) {
     socket.value.close();
   }
   
-  // Reset completo del estado
   currentGameId.value = null;
   playerMarker.value = null;
-  board.value = Array(9).fill(null);
+  board.value = Array(ROWS * COLS).fill(null);
   gameStatus.value = 'WAITING';
   gameMessage.value = 'Desconectado. Recarga la página para volver a jugar.';
   gameIdInput.value = '';
 };
 
-// --- INICIALIZACIÓN ---
+// INICIALIZACIÓN
 
 onMounted(() => {
   socket.value = new WebSocket(WEBSOCKET_ENDPOINT);
@@ -229,14 +256,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="tic-tac-toe-container">
-    <h2>Tres en Raya - WebSockets</h2>
+  <div class="connect4-container">
+    <h1>🔴 Cuatro en Raya 🟡</h1>
     
-    <!-- Panel de gestión de partidas -->
+    <!-- Panel de lobby -->
     <div v-if="!currentGameId" class="game-lobby">
       <div class="lobby-section">
         <h3>Crear nueva partida</h3>
-        <button @click="createNewGame" class="btn-primary">Crear Partida Nueva</button>
+        <button @click="createNewGame" class="btn-primary">🎮 Crear Partida Nueva</button>
         <p class="help-text">Crea una partida y comparte el ID con tu oponente</p>
       </div>
       
@@ -251,7 +278,7 @@ onUnmounted(() => {
           class="game-id-input"
           @keyup.enter="joinGame(gameIdInput)"
         />
-        <button @click="joinGame(gameIdInput)" class="btn-secondary">Unirse</button>
+        <button @click="joinGame(gameIdInput)" class="btn-secondary">🚀 Unirse</button>
         <p class="help-text">Pide el ID a quien creó la partida</p>
       </div>
     </div>
@@ -266,22 +293,54 @@ onUnmounted(() => {
             📋
           </button>
         </div>
-        <p><strong>Mi marcador:</strong> <span class="marker">{{ playerMarker || '...' }}</span></p>
+        <div class="player-info">
+          <div class="player-marker">
+            <span>Mi color:</span>
+            <div 
+              class="color-circle" 
+              :style="{ backgroundColor: getMarkerColor(playerMarker) }"
+            ></div>
+          </div>
+        </div>
         <p class="status">{{ gameMessage }}</p>
       </div>
       
-      <div class="board">
-        <div 
-          v-for="(cell, index) in board" 
-          :key="index" 
-          :class="['cell', { 'clickable': gameStatus === 'PLAYING' && isMyTurn && cell === null }]"
-          @click="makeMove(index)"
-        >
-          {{ cell }}
+      <!-- Tablero de juego -->
+      <div class="board-wrapper">
+        <div class="board">
+          <!-- Columnas clicables -->
+          <div 
+            v-for="col in COLS" 
+            :key="`col-${col}`"
+            class="column"
+            :class="{ 
+              'column-hover': hoveredColumn === col - 1 && gameStatus === 'PLAYING' && isMyTurn,
+              'column-full': isColumnFull(col - 1),
+              'column-disabled': gameStatus !== 'PLAYING' || !isMyTurn
+            }"
+            @click="makeMove(col - 1)"
+            @mouseenter="handleColumnHover(col - 1)"
+            @mouseleave="handleColumnLeave"
+          >
+            <!-- Celdas de la columna -->
+            <div 
+              v-for="row in ROWS" 
+              :key="`cell-${row}-${col}`"
+              class="cell"
+            >
+              <div 
+                class="disc"
+                :class="{ 
+                  'disc-red': boardGrid[row - 1][col - 1] === 'RED',
+                  'disc-yellow': boardGrid[row - 1][col - 1] === 'YELLOW'
+                }"
+              ></div>
+            </div>
+          </div>
         </div>
       </div>
       
-      <!-- Panel de revancha (solo se muestra cuando termina la partida) -->
+      <!-- Panel de revancha -->
       <div v-if="gameStatus === 'FINISHED' && rematchCountdown > 0" class="rematch-panel">
         <div class="countdown">{{ rematchCountdown }}s</div>
         <p v-if="waitingForOpponent" class="rematch-waiting">Esperando al otro jugador...</p>
@@ -297,7 +356,7 @@ onUnmounted(() => {
       </div>
       
       <button @click="leaveGame" class="btn-leave">
-        Salir de la partida
+        🚪 Salir de la partida
       </button>
     </div>
   </div>
@@ -308,55 +367,55 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
-.tic-tac-toe-container {
+.connect4-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   padding: 20px;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
 }
 
 @media (prefers-color-scheme: dark) {
-  .tic-tac-toe-container {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  .connect4-container {
+    background: linear-gradient(135deg, #0f1419 0%, #1a2332 100%);
   }
 }
 
-h2 {
+h1 {
   color: white;
   margin-bottom: 30px;
-  font-size: 2.5em;
-  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+  font-size: clamp(2em, 5vw, 3.5em);
+  text-shadow: 3px 3px 6px rgba(0,0,0,0.4);
+  text-align: center;
 }
 
-/* Lobby styles */
+/* LOBBY STYLES */
 .game-lobby {
   background: white;
   padding: 40px;
-  border-radius: 15px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-  max-width: 500px;
+  border-radius: 20px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+  max-width: 600px;
   width: 100%;
 }
 
 @media (prefers-color-scheme: dark) {
   .game-lobby {
     background: #1e1e1e;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
   }
 }
 
 .lobby-section {
-  margin: 20px 0;
+  margin: 25px 0;
   text-align: center;
 }
 
 .lobby-section h3 {
   color: #333;
-  margin-bottom: 15px;
-  font-size: 1.3em;
+  margin-bottom: 20px;
+  font-size: 1.5em;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -366,9 +425,9 @@ h2 {
 }
 
 .help-text {
-  font-size: 0.85em;
+  font-size: 0.9em;
   color: #666;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -381,8 +440,8 @@ h2 {
   text-align: center;
   color: #999;
   font-weight: bold;
-  margin: 30px 0;
-  font-size: 1.2em;
+  margin: 35px 0;
+  font-size: 1.3em;
   position: relative;
 }
 
@@ -392,7 +451,7 @@ h2 {
   position: absolute;
   top: 50%;
   width: 40%;
-  height: 1px;
+  height: 2px;
   background: #ddd;
 }
 
@@ -417,16 +476,17 @@ h2 {
 
 .game-id-input {
   width: 100%;
-  padding: 12px;
-  font-size: 1em;
+  padding: 15px;
+  font-size: 1.1em;
   border: 2px solid #ddd;
-  border-radius: 8px;
-  margin-bottom: 10px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  transition: border-color 0.3s;
 }
 
 .game-id-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #2a5298;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -437,64 +497,59 @@ h2 {
   }
   
   .game-id-input:focus {
-    border-color: #667eea;
-  }
-  
-  .game-id-input::placeholder {
-    color: #888;
+    border-color: #4a7bc8;
   }
 }
 
-/* Button styles */
+/* BUTTON STYLES */
 button {
-  padding: 12px 24px;
-  font-size: 1em;
+  padding: 15px 30px;
+  font-size: 1.1em;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.3s;
   font-weight: bold;
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #e53e3e 0%, #dd6b20 100%);
   color: white;
   width: 100%;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 8px 20px rgba(229, 62, 62, 0.4);
 }
 
 .btn-secondary {
-  background: #48bb78;
+  background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
   color: white;
   width: 100%;
 }
 
 .btn-secondary:hover {
-  background: #38a169;
+  background: linear-gradient(135deg, #2f855a 0%, #276749 100%);
   transform: translateY(-2px);
 }
 
 .btn-leave {
-  background: #f56565;
+  background: #718096;
   color: white;
-  margin-top: 20px;
+  margin-top: 25px;
   width: 100%;
 }
 
 .btn-leave:hover {
-  background: #e53e3e;
+  background: #4a5568;
 }
 
 .btn-copy {
-  padding: 4px 8px;
-  font-size: 0.9em;
+  padding: 6px 12px;
+  font-size: 1em;
   margin-left: 10px;
   background: #e2e8f0;
-  cursor: pointer;
 }
 
 .btn-copy:hover {
@@ -504,7 +559,6 @@ button {
 @media (prefers-color-scheme: dark) {
   .btn-copy {
     background: #3a3a3a;
-    color: #e0e0e0;
   }
   
   .btn-copy:hover {
@@ -512,12 +566,200 @@ button {
   }
 }
 
-/* Rematch panel */
-.rematch-panel {
-  margin-top: 20px;
-  padding: 20px;
+/* GAME PANEL */
+.game-panel {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+  max-width: 900px;
+  width: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  .game-panel {
+    background: #1e1e1e;
+  }
+}
+
+.game-info {
+  margin-bottom: 25px;
+  text-align: center;
+}
+
+.game-id-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+  font-size: 1.1em;
+}
+
+.game-id-display code {
   background: #f7fafc;
-  border-radius: 10px;
+  padding: 8px 15px;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.95em;
+  margin: 0 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .game-id-display code {
+    background: #2a2a2a;
+    color: #a0d8f1;
+  }
+}
+
+.player-info {
+  margin: 15px 0;
+}
+
+.player-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 1.2em;
+  font-weight: bold;
+  color: #333;
+}
+
+@media (prefers-color-scheme: dark) {
+  .player-marker {
+    color: #e0e0e0;
+  }
+}
+
+.color-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid #333;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  .color-circle {
+    border-color: #666;
+  }
+}
+
+.status {
+  font-weight: bold;
+  font-size: 1.4em;
+  color: #2a5298;
+  margin: 15px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .status {
+    color: #4a7bc8;
+  }
+}
+
+/* BOARD STYLES */
+.board-wrapper {
+  display: flex;
+  justify-content: center;
+  margin: 25px 0;
+}
+
+.board {
+  display: inline-grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  background: #2c5282;
+  padding: 15px;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  .board {
+    background: #1a365d;
+  }
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform 0.2s;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.column:not(.column-disabled):not(.column-full):hover {
+  transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.column-full {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.column-disabled {
+  cursor: default;
+}
+
+.cell {
+  width: clamp(50px, 8vw, 80px);
+  height: clamp(50px, 8vw, 80px);
+  background: #1a365d;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cell {
+    background: #0f1e33;
+  }
+}
+
+.disc {
+  width: 85%;
+  height: 85%;
+  border-radius: 50%;
+  background: transparent;
+  transition: all 0.3s;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.disc-red {
+  background: radial-gradient(circle at 30% 30%, #fc8181, #e53e3e);
+  animation: drop 0.5s ease-out;
+}
+
+.disc-yellow {
+  background: radial-gradient(circle at 30% 30%, #faf089, #ecc94b);
+  animation: drop 0.5s ease-out;
+}
+
+@keyframes drop {
+  0% {
+    transform: translateY(-300px) scale(0);
+  }
+  60% {
+    transform: translateY(10px) scale(1.1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* REMATCH PANEL */
+.rematch-panel {
+  margin-top: 25px;
+  padding: 25px;
+  background: #f7fafc;
+  border-radius: 15px;
   text-align: center;
 }
 
@@ -528,218 +770,94 @@ button {
 }
 
 .countdown {
-  font-size: 2.5em;
+  font-size: 3em;
   font-weight: bold;
-  color: #667eea;
-  margin-bottom: 15px;
+  color: #e53e3e;
+  margin-bottom: 20px;
   animation: pulse 1s infinite;
-}
-
-@media (prefers-color-scheme: dark) {
-  .countdown {
-    color: #a0d8f1;
-  }
 }
 
 @keyframes pulse {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.1); }
+  50% { transform: scale(1.15); }
 }
 
 .rematch-buttons {
   display: flex;
-  gap: 10px;
+  gap: 15px;
   justify-content: center;
 }
 
 .btn-rematch {
-  background: #48bb78;
+  background: #38a169;
   color: white;
   flex: 1;
+  max-width: 200px;
 }
 
 .btn-rematch:hover {
-  background: #38a169;
+  background: #2f855a;
 }
 
 .btn-decline {
-  background: #f56565;
+  background: #e53e3e;
   color: white;
   flex: 1;
+  max-width: 200px;
 }
 
 .btn-decline:hover {
-  background: #e53e3e;
+  background: #c53030;
 }
 
 .rematch-requested,
 .rematch-waiting {
-  color: #667eea;
+  color: #2a5298;
   font-weight: bold;
-  margin-top: 10px;
+  margin-top: 15px;
+  font-size: 1.1em;
 }
 
 @media (prefers-color-scheme: dark) {
   .rematch-requested,
   .rematch-waiting {
-    color: #a0d8f1;
+    color: #4a7bc8;
   }
 }
 
-/* Game panel styles */
-.game-panel {
-  background: white;
-  padding: 30px;
-  border-radius: 15px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-  max-width: 400px;
-  width: 100%;
-}
-
-@media (prefers-color-scheme: dark) {
-  .game-panel {
-    background: #1e1e1e;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-  }
-}
-
-.game-info {
-  margin-bottom: 20px;
-  text-align: center;
-}
-
-.game-id-display {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.game-id-display code {
-  background: #f7fafc;
-  padding: 5px 10px;
-  border-radius: 5px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.9em;
-  margin: 0 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .game-id-display code {
-    background: #2a2a2a;
-    color: #a0d8f1;
-  }
-}
-
-.game-info p {
-  margin: 10px 0;
-  color: #333;
-}
-
-@media (prefers-color-scheme: dark) {
-  .game-info p {
-    color: #e0e0e0;
-  }
-}
-
-.marker {
-  font-size: 1.5em;
-  font-weight: bold;
-  color: #667eea;
-}
-
-@media (prefers-color-scheme: dark) {
-  .marker {
-    color: #a0d8f1;
-  }
-}
-
-.status {
-  font-weight: bold;
-  font-size: 1.2em;
-  color: #667eea;
-  margin: 15px 0;
-}
-
-@media (prefers-color-scheme: dark) {
-  .status {
-    color: #a0d8f1;
-  }
-}
-
-/* Board styles */
-.board {
-  display: grid;
-  grid-template-columns: repeat(3, 100px);
-  grid-template-rows: repeat(3, 100px);
-  gap: 5px;
-  border: 3px solid #333;
-  margin: 20px auto 0 auto;
-  border-radius: 5px;
-  overflow: hidden;
-  justify-self: center;
-}
-
-@media (prefers-color-scheme: dark) {
+/* RESPONSIVE */
+@media (max-width: 768px) {
   .board {
-    border-color: #555;
-  }
-}
-
-.cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 3em;
-  font-weight: bold;
-  background-color: #f7fafc;
-  cursor: default;
-  user-select: none;
-  transition: all 0.2s;
-}
-
-.clickable {
-  cursor: pointer;
-  background-color: #e2e8f0;
-}
-
-.clickable:hover {
-  background-color: #cbd5e0;
-  transform: scale(1.05);
-}
-
-@media (prefers-color-scheme: dark) {
-  .cell {
-    background-color: #2a2a2a;
-    color: #e0e0e0;
-  }
-  
-  .clickable {
-    background-color: #3a3a3a;
-  }
-  
-  .clickable:hover {
-    background-color: #4a4a4a;
-  }
-}
-
-@media (max-width: 600px) {
-  .board {
-    grid-template-columns: repeat(3, 80px);
-    grid-template-rows: repeat(3, 80px);
+    padding: 10px;
   }
   
   .cell {
-    font-size: 2.5em;
-  }
-  
-  h2 {
-    font-size: 2em;
+    width: clamp(40px, 10vw, 60px);
+    height: clamp(40px, 10vw, 60px);
   }
   
   .game-lobby, .game-panel {
-    padding: 20px;
+    padding: 25px;
+  }
+  
+  h1 {
+    font-size: 2em;
+  }
+}
+
+@media (max-width: 480px) {
+  .cell {
+    width: clamp(35px, 11vw, 50px);
+    height: clamp(35px, 11vw, 50px);
+  }
+  
+  .board {
+    gap: 3px;
+    padding: 8px;
+  }
+  
+  .column {
+    gap: 3px;
   }
 }
 </style>
