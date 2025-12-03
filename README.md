@@ -20,8 +20,7 @@ Para la implementación de los WebSockets (Práctica 2), se ha diseñado una arq
 
 ### 📊 Diagrama de Flujo
 
-```mermaid
-sequenceDiagram
+
 Client (Vue.js) <--> AWS CloudFront (CDN)
 AWS CloudFront (CDN) <--> AWS S3 (Hosting Static)
 Client (Vue.js) -->> AWS API Gateway (WebSocket): WSS
