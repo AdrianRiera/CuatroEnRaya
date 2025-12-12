@@ -7,33 +7,15 @@
 
 ## 📖 Introducción
 
-Este repositorio contiene el desarrollo correspondiente a la Entrega 2 del módulo de Acceso a Datos. El proyecto demuestra la implementación de patrones de diseño modernos para el intercambio de información:
-
-1. **Práctica 1:** Diseño de una **API RESTful** para la gestión de datos (Base de datos Sakila).  
-2. **Práctica 2:** Desarrollo de una aplicación en tiempo real (**Connect 4 Multiplayer**) utilizando el patrón **Event-Driven** sobre WebSockets, desplegada en una arquitectura 100% Serverless en **AWS**.
-
+Este repositorio contiene el desarrollo correspondiente a la Entrega 2 del módulo de Acceso a Datos. El proyecto demuestra la implementación de patrones de diseño modernos para el intercambio de información
 ---
 
 ## ☁️ Arquitectura e Infraestructura (AWS Serverless)
 
-Para la implementación de los WebSockets (Práctica 2), se ha diseñado una arquitectura en la nube de alto rendimiento, escalable y sin servidores. Esta infraestructura ha sido validada como solución técnica avanzada para el proyecto.
+Para la implementación de los WebSockets , se ha diseñado una arquitectura en la nube de alto rendimiento, escalable y sin servidores.
 
-### 📊 Diagrama de Flujo
+### 🛠 Tecnologías y Versiones
 
-
-Client (Vue.js) <--> AWS CloudFront (CDN)
-AWS CloudFront (CDN) <--> AWS S3 (Hosting Static)
-Client (Vue.js) -->> AWS API Gateway (WebSocket): WSS
-AWS API Gateway --> AWS Lambda: Invoke
-AWS Lambda --> Amazon DynamoDB: Read/Write
-🧩 Componentes del Sistema
-Componente	Servicio AWS	Función
-Frontend Host	S3 + CloudFront	Alojamiento SPA (Vue.js) + CDN
-API Socket	API Gateway v2	Gestión de conexiones WebSocket
-Backend Logic	AWS Lambda	Lógica del juego (turnos, victoria, emparejamiento)
-Persistencia	DynamoDB	Estado de partidas y jugadores
-
-🛠 Tecnologías y Versiones
 Backend & Cloud
 Lenguaje: Python 3.12
 
@@ -108,15 +90,11 @@ Integrarlas todas con la Lambda y desplegar en stage: production.
 
 2. Frontend
 📦 Instalación local
-bash
-Copiar código
 npm install
 🔧 Configurar endpoint WSS
 Editar el archivo de configuración del proyecto Vue e introducir la URL WebSocket generada por API Gateway.
 
 🚀 Compilar y desplegar en S3
-bash
-Copiar código
 npm run build
 # Subir el contenido de /dist al bucket S3 conectado a CloudFront
 🎮 Manual de Uso
