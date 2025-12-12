@@ -167,5 +167,5 @@ declineRematch
 
 Si ambos aceptan → partida reiniciada manteniendo conexión
 
-👥 Autores
-Adrián Riera Granada – Desarrollo Fullstack & Arquitectura Cloud AWS
+👥 Autor
+Adrián Riera Granada
